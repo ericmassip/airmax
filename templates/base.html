@@ -1,0 +1,30 @@
+{% load django_vite i18n %}{% get_current_language as LANGUAGE_CODE %}<!doctype html>
+<html lang="{{ LANGUAGE_CODE }}" data-theme="light">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}AirMax{% endblock %}</title>
+    {% vite_hmr_client %}
+    {% vite_asset "frontend/main.js" %}
+</head>
+<body class="min-h-screen bg-base-200">
+    <div class="navbar bg-base-100 shadow-sm">
+        <div class="flex-1">
+            <a class="btn btn-ghost text-xl" href="{% url 'airmax:home' %}">AirMax</a>
+        </div>
+        {% if user.is_authenticated %}
+            <div class="flex-none gap-2">
+                <span class="text-sm opacity-70">{{ user.get_username }}</span>
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline">Log out</button>
+                </form>
+            </div>
+        {% endif %}
+    </div>
+
+    <main class="p-6">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

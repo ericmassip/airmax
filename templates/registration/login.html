@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Log in — AirMax{% endblock %}
+
+{% block content %}
+    <div class="card bg-base-100 shadow-md max-w-sm mx-auto">
+        <div class="card-body">
+            <h1 class="card-title">Log in</h1>
+
+            {% for error in form.non_field_errors %}
+                <div class="alert alert-error text-sm">{{ error }}</div>
+            {% endfor %}
+
+            <form method="post">
+                {% csrf_token %}
+                <fieldset class="fieldset">
+                    {% for field in form %}
+                        <label class="label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                        {% for error in field.errors %}
+                            <p class="text-error text-xs">{{ error }}</p>
+                        {% endfor %}
+                    {% endfor %}
+                    <button type="submit" class="btn btn-primary mt-2">Log in</button>
+                </fieldset>
+            </form>
+        </div>
+    </div>
+{% endblock %}
