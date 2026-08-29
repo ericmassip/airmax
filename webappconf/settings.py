@@ -15,7 +15,12 @@ load_dotenv(BASE_DIR / ".env")
 
 
 def env_flag(name, default=False):
-    return os.environ.get(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
+    return os.environ.get(name, str(default)).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]

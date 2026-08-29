@@ -1,0 +1,24 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Keep in sync with the ruff pin in pyproject.toml's dev group.
+    rev: v0.16.5
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/hakancelikdev/unimport
+    rev: 1.4.0
+    hooks:
+      - id: unimport
+        args:
+          - --include-star-import
+          - --ignore-init
+          - --gitignore
+
+  - repo: https://github.com/rtts/djhtml
+    rev: '3.0.11'  # replace with the latest tag on GitHub
+    hooks:
+      - id: djhtml
+        args:
+          - "-t=2" # Tab indentation

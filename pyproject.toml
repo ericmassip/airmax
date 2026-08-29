@@ -13,9 +13,23 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.6.2",
     "pytest>=8.4",
     "pytest-django>=4.11",
+    "ruff>=0.16.5",
 ]
+
+[tool.ruff]
+# The hand-written code sits comfortably in the 90s; 88 would rewrap it for nothing.
+line-length = 100
+# Migrations are generated — reformatting them only makes the next `makemigrations`
+# diff noisier.
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+# Django's Meta.indexes / Meta.constraints are mutable class attributes by design, and
+# it won't accept the ClassVar annotation RUF012 asks for.
+extend-ignore = ["RUF012"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "webappconf.settings"

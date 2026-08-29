@@ -1,4 +1,5 @@
-from datetime import datetime as dt, timedelta
+from datetime import datetime as dt
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -15,16 +16,10 @@ def test_datetimes_are_stored_in_utc_whatever_offset_they_arrive_with():
     14:00 is two different instants six months apart. Storage has to collapse both to UTC or
     every window bound near a DST boundary is an hour wrong."""
     User = get_user_model()
-    User.objects.create_user(
-        username="winter", date_joined=dt(2026, 1, 1, 14, 0, tzinfo=BRUSSELS)
-    )
-    User.objects.create_user(
-        username="summer", date_joined=dt(2026, 7, 1, 14, 0, tzinfo=BRUSSELS)
-    )
+    User.objects.create_user(username="winter", date_joined=dt(2026, 1, 1, 14, 0, tzinfo=BRUSSELS))
+    User.objects.create_user(username="summer", date_joined=dt(2026, 7, 1, 14, 0, tzinfo=BRUSSELS))
 
-    stored = list(
-        User.objects.order_by("username").values_list("username", "date_joined")
-    )
+    stored = list(User.objects.order_by("username").values_list("username", "date_joined"))
 
     assert stored == [
         ("summer", dt(2026, 7, 1, 12, 0, tzinfo=UTC)),  # 14:00 +02:00
@@ -47,4 +42,5 @@ def test_the_column_itself_holds_utc_not_a_local_wall_clock():
         cursor.execute("select date_joined at time zone 'UTC' from airmax_user")
         naive_utc = cursor.fetchone()[0]
 
-    assert naive_utc == dt(2026, 7, 1, 12, 0)
+    # Naive on purpose: `at time zone 'UTC'` hands back a naive value.
+    assert naive_utc == dt(2026, 7, 1, 12, 0)  # noqa: DTZ001
