@@ -1,0 +1,31 @@
+# Large data dumps — see CLAUDE.md
+openaq_sqs_*.json
+openaq_sqs_*.csv
+openaq_be_locations.json
+data/
+
+# Generated prototype payload (rebuild with prototype/prepare_data.py)
+prototype/data.js
+
+.playwright-cli/
+.DS_Store
+
+# Wayfinder planning — not part of the deliverable
+.scratch/
+poc_build_spec.md
+
+# Local secrets — never committed
+.env
+.env.*
+!.env.example
+
+# Python / Django
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+staticfiles/
+
+# Vite build output — rebuild with `npm run build`
+static/dist/
+node_modules/

@@ -1,0 +1,7 @@
+/* Automatic source detection is off: it would walk .venv, node_modules and the throwaway
+   prototype looking for class names. The two directories below are where they live. */
+@import "tailwindcss" source(none);
+@plugin "daisyui";
+
+@source "../templates";
+@source "../airmax";
