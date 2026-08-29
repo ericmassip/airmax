@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Real-time Belgian air quality from the OpenAQ SQS stream."
 requires-python = ">=3.14"
 dependencies = [
+    "boto3>=1.43.83",
     "django>=6.1,<7.0",
     "django-vite>=3.1",
     "psycopg[binary]>=3.2",
@@ -13,6 +14,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    # Only so boto3 can read the local `aws login` session; a deployed container uses an
+    # instance role and needs plain boto3.
+    "botocore[crt]>=1.43.83",
     "pre-commit>=4.6.2",
     "pytest>=8.4",
     "pytest-django>=4.11",
