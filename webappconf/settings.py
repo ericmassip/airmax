@@ -40,7 +40,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    # Serves built assets when DEBUG is off, so the demo needs no separate web server.
+    # Serves built assets when DEBUG is off, so the demo needs no separate web server
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -103,16 +103,6 @@ MAILERS = {
 
 LANGUAGE_CODE = "en-GB"
 USE_I18N = True
-# `USE_TZ` — not `TIME_ZONE` — is what puts UTC in the database: every datetime is stored in
-# a `timestamptz` column as UTC whatever offset it arrived on, so DST can never shift a
-# reading or a window bound.
-#
-# `TIME_ZONE` is the *rendering* frame, and Brussels is right for it: a reading at a Belgian
-# station is a fact about Belgian air at a Belgian hour, true whoever is looking.
-#
-# The catch is that outside a request there is no active zone, so this is also the frame that
-# `make_aware()` assumes. Ingestion must therefore attach UTC explicitly and never lean on the
-# ambient zone — the payload's `date.local` carries a real offset, so it has no excuse to.
 TIME_ZONE = "Europe/Brussels"
 USE_THOUSAND_SEPARATOR = True
 USE_TZ = True
@@ -126,8 +116,8 @@ STORAGES = {
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
 }
 
-# The demo-morning guardrail: with dev_mode off, assets come from the Vite manifest and
-# no Node process needs to be alive. Binding it to DEBUG means the two can never drift.
+# With dev_mode off, assets come from the Vite manifest and no Node process needs to be alive. Binding it to DEBUG means
+# the two can never drift.
 DJANGO_VITE = {
     "default": {
         "dev_mode": DEBUG,
@@ -137,3 +127,30 @@ DJANGO_VITE = {
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+LOG_LEVEL = os.environ.get("LOG_LEVEL", default="INFO")
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{asctime} {levelname} {name} {message}",
+            "style": "{",
+        },
+        "simple": {
+            "format": "{levelname} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "formatter": "verbose",
+        },
+    },
+    "root": {  # Single root logger catches everything
+        "handlers": ["console"],
+        "level": LOG_LEVEL,
+    },
+}

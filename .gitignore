@@ -1,7 +1,4 @@
 # Large data dumps — see CLAUDE.md
-openaq_sqs_*.json
-openaq_sqs_*.csv
-openaq_be_locations.json
 data/
 
 # Generated prototype payload (rebuild with prototype/prepare_data.py)
