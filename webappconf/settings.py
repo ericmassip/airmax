@@ -80,7 +80,6 @@ DATABASES = {
         # RDS runs with rds.force_ssl = 1; a plaintext connection is refused outright
         # with "no pg_hba.conf entry ... no encryption", which reads like a bad password.
         "OPTIONS": {"sslmode": "require"},
-        "CONN_MAX_AGE": 60,
     }
 }
 
@@ -154,3 +153,6 @@ LOGGING = {
         "level": LOG_LEVEL,
     },
 }
+
+AIRMAX_WINDOW_HOURS = float(os.environ.get("AIRMAX_WINDOW_HOURS", "3"))
+AIRMAX_HISTORY_DAYS = float(os.environ.get("AIRMAX_HISTORY_DAYS", "3"))

@@ -7,5 +7,6 @@ class LoginForm(AuthenticationForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["username"].widget.attrs["autofocus"] = True
         for field in self.fields.values():
             field.widget.attrs["class"] = "input w-full"
