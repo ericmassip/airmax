@@ -17,5 +17,8 @@
     "daisyui": "^5.7.22",
     "tailwindcss": "^4.3.3",
     "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4"
   }
 }

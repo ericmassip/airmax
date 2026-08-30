@@ -1,9 +1,9 @@
 from django.urls import path
 
-from airmax.views import Home
+from airmax.views.map.map_view import MapView
 
 app_name = "airmax"
 
 urlpatterns = [
-    path("", Home.as_view(), name="home"),
+    path("", MapView.as_view(), name="map"),
 ]

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block title %}Current air quality — AirMax{% endblock %}
+{% block body_class %}map{% endblock %}
+
+{% block content %}
+  {{ map_payload|json_script:"map-payload" }}
+
+  <div id="map"></div>
+
+  <div id="header" class="panel sheet">
+    <div class="eyebrow">
+      <span class="wordmark">AirMax</span>
+    </div>
+    <h1>Current air quality</h1>
+    <p class="sub">
+      {{ data.window_hours|floatformat:"-2" }} hours average per station · OpenAQ BE stream · times in Brussels local
+    </p>
+    <div class="figures">
+      <div class="figure"><b id="s-stations">—</b><span id="s-stations-l">Stations</span></div>
+      <div class="figure"><b id="s-measurements">—</b><span id="s-measurements-l">Measurements</span></div>
+    </div>
+    <p class="foot" id="s-total">—</p>
+        {% comment %}
+            The one fact the slider never changes: how stale the network itself is. Rendered
+            here rather than per marker, because a station reports every one of its own
+            parameters in every burst — no station is ever staler than another.
+        {% endcomment %}
+    <p class="freshness">
+      {% if data.newest_event_time %}
+        Newest reading in the network<br>
+        <b>{{ data.newest_event_time|date:"D j M H:i" }}</b> ·
+        <b>{{ data.newest_event_time|naturaltime }}</b>{% if data.window_is_empty %} — nothing in the live {{ data.window_hours|floatformat:"-2" }} hours{% endif %}.
+      {% else %}
+        No measurements have been ingested yet.
+      {% endif %}
+    </p>
+  </div>
+
+  <div id="topright" class="panel">
+    <button class="control" id="btn-table" aria-pressed="false">Table</button>
+    <button class="control" id="btn-theme" title="Toggle theme">☾</button>
+    <form method="post" action="{% url 'logout' %}">
+      {% csrf_token %}
+      <button type="submit" class="control">Log out</button>
+    </form>
+  </div>
+
+  <div id="detail" class="panel sheet"></div>
+  <div id="empty" class="panel sheet" role="status"></div>
+
+  <div id="legend" class="panel sheet">
+    <div class="legend-title" id="legend-title">Air quality band</div>
+    <div id="legend-rows"></div>
+    <div class="legend-note" id="legend-note"></div>
+  </div>
+
+  <div id="bottom" class="panel sheet">
+    <div class="barrow">
+      <div class="seg" id="param-seg"></div>
+      <button class="control" id="btn-play" style="box-shadow:none">▶ Play</button>
+      <div class="window-readout">
+        <b id="w-end">—</b>
+        <span id="w-range">—</span>
+      </div>
+    </div>
+    <div class="slider-wrap">
+      <div id="coverage" title="Slider positions where the window contains data"></div>
+      <input type="range" id="slider" aria-label="Window end time">
+    </div>
+    <div class="ticks" id="ticks"></div>
+  </div>
+
+  <div id="tableview">
+    <button class="control tv-close" id="btn-table-close">← Back to map</button>
+    <div class="wrap">
+      <h2 id="tv-title">—</h2>
+      <p class="sub" id="tv-sub">—</p>
+      <table class="full">
+        <thead>
+          <tr>
+            <th>Station</th>
+            <th class="num">Last known</th>
+            <th class="num">In window</th>
+            <th>Band</th>
+          </tr>
+        </thead>
+        <tbody id="tv-body"></tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

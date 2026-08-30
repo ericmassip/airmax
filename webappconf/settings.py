@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.humanize",
     "django_vite",
     "airmax",
 ]
@@ -93,7 +94,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "airmax:home"
+LOGIN_REDIRECT_URL = "airmax:map"
 LOGOUT_REDIRECT_URL = "login"
 
 MAILERS = {
