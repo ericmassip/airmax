@@ -1,11 +1,8 @@
-from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.db.models import CheckConstraint, Q, UniqueConstraint
 
 
 class Parameter(models.TextChoices):
-    """The six pollutants the source reports. Labels are what the map switcher and legend show."""
-
     CO = "co", "CO"
     NO2 = "no2", "NO₂"
     O3 = "o3", "O₃"
@@ -31,18 +28,9 @@ PARAMETER_UNITS = {
 }
 
 
-class User(AbstractUser):
-    """Empty today. Swapping the user model once rows exist is a data migration, so it costs nothing now and a great
-    deal later."""
-
-
 class Location(models.Model):
     """A monitoring location the source calls a `locationId`, and the only identity it gives us. There is no sensor id
-    anywhere in the stream. Everything here is an attribute of the location itself rather than of any one reading.
-
-    Nothing in this table is a source of truth, it is derived from the stream and can be rebuilt by replaying the raw
-    capture.
-    """
+    anywhere in the stream. Everything here is an attribute of the location itself rather than of any one reading."""
 
     id = models.IntegerField(
         primary_key=True
