@@ -23,7 +23,8 @@ def env_flag(name, default=False):
     }
 
 
-SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
+# Empty for the Lambda consumer, which signs nothing
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
 DEBUG = env_flag("DJANGO_DEBUG", default=True)
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
@@ -75,9 +76,11 @@ DATABASES = {
         "ENGINE": "django.db.backends.postgresql",
         "HOST": os.environ["DB_HOST"],
         "PORT": os.environ.get("DB_PORT", "5432"),
-        "NAME": os.environ["DB_NAME"],
+        "NAME": os.environ.get("DB_NAME", "airmax"),
         "USER": os.environ["DB_USER"],
-        "PASSWORD": os.environ["DB_PASSWORD"],
+        # Empty for the Lambda consumer: it authenticates with an IAM token minted per invocation and set on the
+        # connection just before it opens. See airmax/lambdas/ingest_measurements/handler.py.
+        "PASSWORD": os.environ.get("DB_PASSWORD", ""),
         # RDS runs with rds.force_ssl = 1; a plaintext connection is refused outright
         # with "no pg_hba.conf entry ... no encryption", which reads like a bad password.
         "OPTIONS": {"sslmode": "require"},
@@ -155,5 +158,5 @@ LOGGING = {
     },
 }
 
-AIRMAX_WINDOW_HOURS = float(os.environ.get("AIRMAX_WINDOW_HOURS", "3"))
-AIRMAX_HISTORY_DAYS = float(os.environ.get("AIRMAX_HISTORY_DAYS", "3"))
+AIRMAX_WINDOW_HOURS = int(os.environ.get("AIRMAX_WINDOW_HOURS", "3"))
+AIRMAX_HISTORY_DAYS = int(os.environ.get("AIRMAX_HISTORY_DAYS", "3"))
