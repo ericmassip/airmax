@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from django.db import transaction
 
-from airmax.models import PARAMETER_UNITS, Location, Measurement
+from airmax.models import Location, Measurement
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +23,6 @@ class ParsedLocation:
 
     @classmethod
     def from_payload(cls, payload: dict) -> ParsedLocation:
-        """Which payload key feeds which field, kept next to the fields themselves."""
         return cls(
             id=payload["locationId"],
             name=payload["location"],
@@ -63,9 +62,8 @@ class ParsedMeasurement:
 
 
 @dataclass(frozen=True)
-class StoreResult:
-    """How a batch landed. Created means the row did not exist; updated means an upsert overwrote one that did, which is
-    the normal case for a redelivered or replayed message."""
+class UpsertResult:
+    """Returns a summary of the inserted/updated objects after a full upsert run"""
 
     locations_created: int = 0
     locations_updated: int = 0
@@ -73,15 +71,15 @@ class StoreResult:
     measurements_updated: int = 0
 
     def __add__(self, other):
-        return StoreResult(*(a + b for a, b in zip(astuple(self), astuple(other))))
+        return UpsertResult(*(a + b for a, b in zip(astuple(self), astuple(other))))
 
 
-def parse_message(message: dict) -> ParsedMeasurement:
-    """Unwraps one raw SQS message, exactly as boto3 hands it over, into a measurement.
+def parse_measurement_body(body: str) -> ParsedMeasurement:
+    """Unwraps the body of one raw SQS message into a measurement
 
     Example:
-        One message, unescaped and indented so the nesting reads. Both inner layers really
-        arrive as strings, not objects:
+        The enclosing message, unescaped and indented for readability. `Body` is the string we are handed. Both inner
+        layers arrive as strings, not objects:
 
             {
               "MessageId": "840454a7-03ac-48aa-a942-491d20c90224",
@@ -123,46 +121,32 @@ def parse_message(message: dict) -> ParsedMeasurement:
     NB: `date.utc` is not UTC, it's the local wall clock with the offset chopped off, identical to `date.local`, so we
     use parse `date.local` to UTC instead.
 
-    Raises ValueError on a payload that does not parse, and on one that parses into a measurement we cannot store, so a
-    ParsedMeasurement that exists is always one `store` will accept.
+    Raises ValueError on a payload that does not parse.
     """
-    return validate_message(
-        ParsedMeasurement.from_payload(json.loads(json.loads(message["Body"])["Message"]))
-    )
-
-
-def validate_message(measurement: ParsedMeasurement) -> ParsedMeasurement:
-    """Rejects what `Measurement`'s check constraint would refuse anyway, one message earlier.
-
-    Waiting for the database is too late: `store` writes a whole batch in a single `bulk_create`, so one bad pair rolls
-    back the nine good rows beside it. Raising here keeps the blast radius at the message that caused it.
-
-    The constraint and this check both read `PARAMETER_UNITS`, so the rule itself lives in one place. Only the wording
-    differs — a Q object for Postgres, a dict lookup for us — and collapsing that would cost a query per message.
-    """
-    if PARAMETER_UNITS.get(measurement.parameter) != measurement.unit:
-        raise ValueError(
-            f"{measurement.unit!r} is not the unit we store for {measurement.parameter!r}"
-        )
-    return measurement
+    return ParsedMeasurement.from_payload(json.loads(json.loads(body)["Message"]))
 
 
 @transaction.atomic
-def store(measurements: Iterable[ParsedMeasurement]) -> StoreResult:
+def upsert_measurements(measurements: Iterable[ParsedMeasurement]) -> UpsertResult:
     """Upserts a batch of parsed measurements and the locations behind them. SQS is at-least-once, so measurements might
     be stored more than once, with or without updates. Therefore, both tables upsert on their natural key, replaying an
     existing message overwrites it with the same values instead of raising or duplicating.
+
+    Both tables are written in key order, which is what keeps concurrent invocations off each other's backs. See the
+    comment on the sort below.
     """
-    # Postgres refuses to let one `ON CONFLICT DO UPDATE` touch the same row twice, so a batch carrying the same reading
-    # twice would fail. Last one wins, which is the right way round for a correction.
+    # Deduplicate rows with the same identity (location_id, parameter, event_time) and keep the last one, because
+    # Postgres would fail a batch with an `ON CONFLICT DO UPDATE` on the same row twice. Also sort to prevent two
+    # concurrent invocations deadlocking each other on airmax_location.
     deduplicated_measurements = {
-        (measurement.location.id, measurement.parameter, measurement.event_time): measurement
-        for measurement in measurements
+        (m.location.id, m.parameter, m.event_time): m
+        for m in sorted(measurements, key=lambda m: (m.location.id, m.parameter, m.event_time))
     }
     if not deduplicated_measurements:
-        return StoreResult()
+        return UpsertResult()
 
     locations_before = Location.objects.count()
+    # location_id is the first element of the sort key, so these come out ordered too, with no second sort
     locations = {
         measurement.location.id: Location(**asdict(measurement.location))
         for measurement in deduplicated_measurements.values()
@@ -205,7 +189,7 @@ def store(measurements: Iterable[ParsedMeasurement]) -> StoreResult:
     )
     measurements_created = Measurement.objects.count() - measurements_before
 
-    result = StoreResult(
+    result = UpsertResult(
         locations_created=locations_created,
         locations_updated=len(locations) - locations_created,
         measurements_created=measurements_created,

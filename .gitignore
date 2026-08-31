@@ -26,3 +26,8 @@ staticfiles/
 # Vite build output — rebuild with `npm run build`
 static/dist/
 node_modules/
+
+
+# Lambda build artefacts — rebuild with scripts/build_lambda_zip.sh
+build/
+dist/
