@@ -1,5 +1,7 @@
-from django.db import models
+from django.contrib.gis.db import models
 from django.db.models import CheckConstraint, Q, UniqueConstraint
+
+from airmax.models.city import City
 
 
 class Parameter(models.TextChoices):
@@ -35,10 +37,10 @@ class Location(models.Model):
     id = models.IntegerField(
         primary_key=True
     )  # payload's `locationId` called `id` so Measurement's FK is `location_id`
-    name = models.CharField(max_length=100)  # Currently matches `city` in all messages
-    city = models.CharField(
-        max_length=100
-    )  # Will become a geospatial model by itself in future steps
+    name = models.CharField(max_length=100)  # Currently matches `source_city` in all messages
+    # The city name the location message claims, but not a municipality. We keep it as raw source data but never
+    # aggregate on it. See Measurement.city for where a reading actually belongs.
+    source_city = models.CharField(max_length=100)
     country = models.CharField(max_length=2)  # Alpha-2 country code
     is_mobile = models.BooleanField()
     entity = models.CharField(max_length=100)
@@ -61,8 +63,11 @@ class Measurement(models.Model):
     event_time = models.DateTimeField()
     value = models.FloatField()
     unit = models.CharField(max_length=10, choices=Unit)
-    latitude = models.FloatField()  # Where the instrument was for THIS reading, so a mobile
-    longitude = models.FloatField()  # location moving never rewrites its own history
+    point = models.PointField(srid=4326)
+    # Resolved at ingest time from `point` to save query time when reading
+    city = models.ForeignKey(
+        City, on_delete=models.SET_NULL, related_name="measurements", null=True, blank=True
+    )
     is_analysis = models.BooleanField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -83,6 +88,8 @@ class Measurement(models.Model):
         ]
         indexes = [
             models.Index(fields=["event_time"], name="measurement_event_time_idx"),
+            # Carries both readings the app makes: the live window per city, and a year of one city's history.
+            models.Index(fields=["city", "event_time"], name="measurement_city_time_idx"),
         ]
 
     def __str__(self):

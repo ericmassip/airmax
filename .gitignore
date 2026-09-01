@@ -1,5 +1,6 @@
 # Large data dumps — see CLAUDE.md
 data/
+!data/be_municipalities.geojson
 
 # Generated prototype payload (rebuild with prototype/prepare_data.py)
 prototype/data.js

@@ -15,12 +15,7 @@ load_dotenv(BASE_DIR / ".env")
 
 
 def env_flag(name, default=False):
-    return os.environ.get(name, str(default)).strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return os.environ.get(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
 
 
 # Empty for the Lambda consumer, which signs nothing
@@ -73,7 +68,7 @@ WSGI_APPLICATION = "webappconf.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django.contrib.gis.db.backends.postgis",
         "HOST": os.environ["DB_HOST"],
         "PORT": os.environ.get("DB_PORT", "5432"),
         "NAME": os.environ.get("DB_NAME", "airmax"),
@@ -86,6 +81,13 @@ DATABASES = {
         "OPTIONS": {"sslmode": "require"},
     }
 }
+
+# GeoDjango needs these libraries but ctypes' find_library does not look in Homebrew's prefix on Mac
+# See: https://docs.djangoproject.com/en/6.1/ref/contrib/gis/install/geolibs/
+if gdal_library_path := os.environ.get("GDAL_LIBRARY_PATH"):
+    GDAL_LIBRARY_PATH = gdal_library_path
+if geos_library_path := os.environ.get("GEOS_LIBRARY_PATH"):
+    GEOS_LIBRARY_PATH = geos_library_path
 
 AUTH_USER_MODEL = "airmax.User"
 
