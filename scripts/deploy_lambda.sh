@@ -18,7 +18,7 @@ RUNTIME=python3.14
 # Keep this in step with PLATFORM and PYTHON_VERSION in build_lambda_zip.sh.
 ARCHITECTURE=arm64
 TIMEOUT=60  # Generous: a batch of 500 upserts takes a few seconds, the rest is headroom for a cold start
-MEMORY_SIZE=512  # Enough for django plus a batch in memory, but cheap
+MEMORY_SIZE=512
 ROLE_NAME=lambda-execution-role
 
 QUEUE_NAME=openaq-eric
@@ -71,8 +71,8 @@ echo "    role:     $role_arn"
 echo "    database: $db_host"
 echo "    queue:    $queue_arn"
 
-# DB_NAME, DB_PORT and DB_PASSWORD are all left to their defaults in settings.py. The password stays empty on purpose:
-# the handler replaces it with an IAM token on every invocation, so there is no secret to set here or anywhere else.
+# DB_NAME and DB_PORT are left to their defaults in the handler. There is no password to set: the handler mints an IAM
+# token per invocation, so there is no secret here or anywhere else.
 environment="Variables={DB_HOST=$db_host,DB_USER=$DB_USER}"
 
 echo

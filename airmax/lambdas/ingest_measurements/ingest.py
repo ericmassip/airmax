@@ -1,12 +1,8 @@
 import json
 import logging
 from collections.abc import Iterable
-from dataclasses import asdict, astuple, dataclass
+from dataclasses import astuple, dataclass
 from datetime import UTC, datetime
-
-from django.db import transaction
-
-from airmax.models import Location, Measurement
 
 log = logging.getLogger(__name__)
 
@@ -15,7 +11,7 @@ log = logging.getLogger(__name__)
 class ParsedLocation:
     id: int
     name: str
-    city: str
+    source_city: str
     country: str
     is_mobile: bool
     entity: str
@@ -26,7 +22,8 @@ class ParsedLocation:
         return cls(
             id=payload["locationId"],
             name=payload["location"],
-            city=payload["city"],
+            # The village the stream claims. Where the reading actually belongs is decided by its coordinates.
+            source_city=payload["city"],
             country=payload["country"],
             is_mobile=payload["isMobile"],
             entity=payload["entity"],
@@ -59,6 +56,12 @@ class ParsedMeasurement:
             # `date.local` is the only field carrying a real offset, so we convert it to UTC instead of using `date.utc`
             event_time=datetime.fromisoformat(payload["date"]["local"]).astimezone(UTC),
         )
+
+    @property
+    def ewkt(self) -> str:
+        """(Extended Well-Known Text) The position as PostGIS takes it directly, with longitude first:
+        ST_MakePoint is (x, y)."""
+        return f"SRID=4326;POINT({self.longitude} {self.latitude})"
 
 
 @dataclass(frozen=True)
@@ -110,7 +113,7 @@ def parse_measurement_body(body: str) -> ParsedMeasurement:
 
     Returns:
         ParsedMeasurement(
-            location=ParsedLocation(id=8752, name="Daussoulx", city="Daussoulx",
+            location=ParsedLocation(id=8752, name="Daussoulx", source_city="Daussoulx",
                                     country="BE", is_mobile=False,
                                     entity="difficult", sensor_type="low-cost"),
             parameter="no2", value=96.6642121093, unit="µg/m³",
@@ -126,11 +129,56 @@ def parse_measurement_body(body: str) -> ParsedMeasurement:
     return ParsedMeasurement.from_payload(json.loads(json.loads(body)["Message"]))
 
 
-@transaction.atomic
-def upsert_measurements(measurements: Iterable[ParsedMeasurement]) -> UpsertResult:
-    """Upserts a batch of parsed measurements and the locations behind them. SQS is at-least-once, so measurements might
-    be stored more than once, with or without updates. Therefore, both tables upsert on their natural key, replaying an
-    existing message overwrites it with the same values instead of raising or duplicating.
+# `created_at` and `updated_at` default to now(), except inside DO UPDATE where `created_at` is not updated
+#
+# `xmax = 0` is only true for insert rows, that's how we count inserted vs updated
+LOCATION_SQL = """
+INSERT INTO airmax_location
+    (id, name, source_city, country, is_mobile, entity, sensor_type, created_at, updated_at)
+VALUES {rows}
+ON CONFLICT (id) DO UPDATE SET
+    name = EXCLUDED.name,
+    source_city = EXCLUDED.source_city,
+    country = EXCLUDED.country,
+    is_mobile = EXCLUDED.is_mobile,
+    entity = EXCLUDED.entity,
+    sensor_type = EXCLUDED.sensor_type,
+    updated_at = now()
+RETURNING (xmax = 0)
+"""
+LOCATION_ROW = "(%s, %s, %s, %s, %s, %s, %s, now(), now())"
+
+# The city is resolved here rather than at read time to save resources when querying the db in the future with millions
+# of measurements. Also, we can then keep the geospatial library outside the Lambda.
+#
+# The CTE exists so the point can be named once and used twice: stored, and asked which city contains it
+MEASUREMENT_SQL = """
+WITH measurement_batch (location_id, parameter, event_time, value, unit, point, is_analysis) AS (
+    VALUES {rows}
+)
+INSERT INTO airmax_measurement
+    (location_id, parameter, event_time, value, unit, point, city_id, is_analysis, created_at, updated_at)
+SELECT
+    m.location_id, m.parameter, m.event_time, m.value, m.unit, m.point,
+    (SELECT c.refnis FROM airmax_city c WHERE ST_Contains(c.geometry, m.point) LIMIT 1),
+    m.is_analysis, now(), now()
+FROM measurement_batch m
+ON CONFLICT (location_id, parameter, event_time) DO UPDATE SET
+    value = EXCLUDED.value,
+    unit = EXCLUDED.unit,
+    point = EXCLUDED.point,
+    city_id = EXCLUDED.city_id,
+    is_analysis = EXCLUDED.is_analysis,
+    updated_at = now()
+RETURNING (xmax = 0)
+"""
+MEASUREMENT_ROW = "(%s, %s, %s, %s, %s, ST_GeomFromEWKT(%s), %s)"
+
+
+def upsert_measurements(connection, measurements: Iterable[ParsedMeasurement]) -> UpsertResult:
+    """Upserts a batch of parsed measurements and the locations behind them, in one transaction. SQS is at-least-once,
+    so measurements might be stored more than once, with or without updates. Therefore, both tables upsert on their
+    natural key, replaying an existing message overwrites it with the same values instead of raising or duplicating.
 
     Both tables are written in key order, which is what keeps concurrent invocations off each other's backs. See the
     comment on the sort below.
@@ -145,64 +193,42 @@ def upsert_measurements(measurements: Iterable[ParsedMeasurement]) -> UpsertResu
     if not deduplicated_measurements:
         return UpsertResult()
 
-    locations_before = Location.objects.count()
-    # location_id is the first element of the sort key, so these come out ordered too, with no second sort
-    locations = {
-        measurement.location.id: Location(**asdict(measurement.location))
-        for measurement in deduplicated_measurements.values()
-    }
-    Location.objects.bulk_create(
-        locations.values(),
-        update_conflicts=True,
-        unique_fields=["id"],
-        update_fields=[
-            "name",
-            "city",
-            "country",
-            "is_mobile",
-            "entity",
-            "sensor_type",
-            "updated_at",
-        ],
-    )
-    locations_created = Location.objects.count() - locations_before
+    with connection.cursor() as cursor:
+        # location_id is the first element of the sort key, so these come out ordered too, with no second sort
+        locations = {m.location.id: m.location for m in deduplicated_measurements.values()}
+        location_params = [field for location in locations.values() for field in astuple(location)]
+        location_rows = ", ".join([LOCATION_ROW] * len(locations))
+        cursor.execute(LOCATION_SQL.format(rows=location_rows), location_params)
+        locations_created = sum(inserted for (inserted,) in cursor.fetchall())
 
-    measurement_rows = [
-        Measurement(
-            location_id=measurement.location.id,
-            parameter=measurement.parameter,
-            event_time=measurement.event_time,
-            value=measurement.value,
-            unit=measurement.unit,
-            latitude=measurement.latitude,
-            longitude=measurement.longitude,
-            is_analysis=measurement.is_analysis,
-        )
-        for measurement in deduplicated_measurements.values()
-    ]
-    measurements_before = Measurement.objects.count()
-    Measurement.objects.bulk_create(
-        measurement_rows,
-        update_conflicts=True,
-        unique_fields=["location", "parameter", "event_time"],
-        update_fields=["value", "unit", "latitude", "longitude", "is_analysis", "updated_at"],
-    )
-    measurements_created = Measurement.objects.count() - measurements_before
+        measurement_params = []
+        for measurement in deduplicated_measurements.values():
+            measurement_params += [
+                measurement.location.id,
+                measurement.parameter,
+                measurement.event_time,
+                measurement.value,
+                measurement.unit,
+                measurement.ewkt,
+                measurement.is_analysis,
+            ]
+        measurement_rows = ", ".join([MEASUREMENT_ROW] * len(deduplicated_measurements))
+        cursor.execute(MEASUREMENT_SQL.format(rows=measurement_rows), measurement_params)
+        measurements_created = sum(inserted for (inserted,) in cursor.fetchall())
 
     result = UpsertResult(
         locations_created=locations_created,
         locations_updated=len(locations) - locations_created,
         measurements_created=measurements_created,
-        measurements_updated=len(measurement_rows) - measurements_created,
+        measurements_updated=len(deduplicated_measurements) - measurements_created,
     )
     log.debug(
-        "Stored a batch of %d: %d locations (%d new, %d updated), "
-        "%d measurements (%d new, %d updated)",
-        len(measurement_rows),
+        "Stored a batch of %d: %d locations (%d new, %d updated), %d measurements (%d new, %d updated)",
+        len(deduplicated_measurements),
         len(locations),
         result.locations_created,
         result.locations_updated,
-        len(measurement_rows),
+        len(deduplicated_measurements),
         result.measurements_created,
         result.measurements_updated,
     )

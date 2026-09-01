@@ -13,13 +13,8 @@ PYTHON_VERSION=3.14
 
 # Only the dependencies the handler needs are copied over. boto3 is absent because the runtime provides it.
 LAMBDA_PACKAGES=(
-    django
-    django-vite     # not imported by us, but django.setup() loads it from INSTALLED_APPS
     psycopg
     psycopg-binary  # the compiled half, and the reason PLATFORM matters
-    python-dotenv   # settings calls load_dotenv, which no-ops with no .env in the zip
-    asgiref         # django
-    sqlparse        # django
 )
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -54,19 +49,13 @@ uv pip install \
     -r "$requirements"
 
 echo "==> Adding application code"
-# Only the modules the handler needs are copied over
-mkdir -p "$build_dir/airmax" "$build_dir/webappconf"
+mkdir -p "$build_dir/airmax"
 cp airmax/__init__.py "$build_dir/airmax/"
-cp airmax/apps.py "$build_dir/airmax/"
 cp -R airmax/lambdas "$build_dir/airmax/"
-cp -R airmax/models "$build_dir/airmax/"
-cp webappconf/__init__.py webappconf/settings.py "$build_dir/webappconf/"
 
 find "$build_dir" -type d -name '__pycache__' -prune -exec rm -rf {} +
 rm -rf "$build_dir/bin"
 rm -f "$build_dir/.lock"
-# django-vite's wheel ships its own test suite as a top-level `tests` package, removing
-rm -rf "$build_dir/tests"
 
 echo "==> Zipping"
 (cd "$build_dir" && zip -qr "$zip_path" .)
