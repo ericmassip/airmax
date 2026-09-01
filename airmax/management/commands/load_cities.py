@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from django.contrib.gis.geos import GEOSGeometry, MultiPolygon
+from django.contrib.gis.geos import GEOSGeometry, MultiPolygon, Polygon
 from django.core.management.base import BaseCommand
 
 from airmax.models import City
@@ -22,11 +22,13 @@ class Command(BaseCommand):
         for feature in features:
             properties = feature["properties"]
             geometry = GEOSGeometry(json.dumps(feature["geometry"]), srid=4326)
-            # A handful of cities are multi polygons so setting them all as Polygon's for simplicity, no impact
-            geometry = MultiPolygon(geometry, srid=4326)
+            # 560 of the 565 are a plain Polygon, and the column takes a MultiPolygon. The other 5 are already one:
+            # Baarle-Hertog alone is 26 fragments scattered inside the Netherlands.
+            if isinstance(geometry, Polygon):
+                geometry = MultiPolygon(geometry, srid=4326)
             cities.append(
                 City(
-                    refnis=properties["refnis"],
+                    refnis=int(properties["refnis"]),
                     name_nl=properties["name_nl"],
                     name_fr=properties["name_fr"],
                     name_de=properties["name_de"],
