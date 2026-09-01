@@ -5,7 +5,7 @@ class City(models.Model):
     """One of the 565 Belgian municipalities, keyed by its official REFNIS code. Downloaded from
     https://statbel.fgov.be/en/open-data/municipalities-2025 and dissolved per municipality with a python script."""
 
-    refnis = models.CharField(max_length=5, primary_key=True)
+    refnis = models.IntegerField(primary_key=True)  # 5 digit number where first digit is (1-9)
     # All three official names stored, choosing which one to show is a display decision
     name_nl = models.CharField(max_length=100)
     name_fr = models.CharField(max_length=100)

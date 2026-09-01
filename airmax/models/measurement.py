@@ -88,8 +88,6 @@ class Measurement(models.Model):
         ]
         indexes = [
             models.Index(fields=["event_time"], name="measurement_event_time_idx"),
-            # Carries both readings the app makes: the live window per city, and a year of one city's history.
-            models.Index(fields=["city", "event_time"], name="measurement_city_time_idx"),
         ]
 
     def __str__(self):
