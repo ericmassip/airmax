@@ -1,5 +1,6 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { age, bandOf, esc, number, plural, renderLegend, timeline, upperBound } from "./map_helpers.js";
 
 // Leaflet comes through npm rather than a CDN <script>. Vite is already bundling the
 // stylesheet, so this adds no failure mode that was not there — and it removes one, because a
@@ -13,7 +14,7 @@ function start(node, D) {
     const NS = D.stations.length;
     const NP = D.parameters.length;
     const WINDOW = D.windowSeconds;
-    const TZ = "Europe/Brussels";
+    const { clock, shortClock } = timeline(D.epoch);
 
     // Typed arrays: the whole history is rescanned on every slider tick, and this is what
     // keeps that in the low milliseconds rather than the tens.
@@ -36,43 +37,7 @@ function start(node, D) {
     let station = null;
     let playing = null;
 
-    /* ── time ─────────────────────────────────────────────────────────────── */
-
-    const at = (offset) => new Date((D.epoch + offset) * 1000);
-    const clock = (offset) =>
-        at(offset).toLocaleString("en-GB", {
-            timeZone: TZ, weekday: "short", day: "2-digit", month: "short",
-            hour: "2-digit", minute: "2-digit", hour12: false,
-        });
-    const shortClock = (offset) =>
-        at(offset).toLocaleString("en-GB", {
-            timeZone: TZ, weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
-        });
-
-    // Mirrors the server's formatter. Ages here are relative to wherever the slider sits, not
-    // to the wall clock, so they cannot be rendered server-side the way the freshness line is.
-    function age(seconds) {
-        const minutes = Math.floor(seconds / 60);
-        if (minutes < 1) return "just now";
-        if (minutes < 60) return `${minutes} min ago`;
-        if (minutes < 1440) return `${Math.floor(minutes / 60)} h ${minutes % 60} min ago`;
-        const hours = Math.floor(minutes / 60);
-        return `${Math.floor(hours / 24)} d ${hours % 24} h ago`;
-    }
-
-    const number = (v) => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2));
-    const count_ = (n) => `${n} measurement${n === 1 ? "" : "s"}`;
-    const ENTITIES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
-    // Station names come off the stream, so they are never trusted into innerHTML.
-    const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ENTITIES[c]);
-
     /* ── aggregation ──────────────────────────────────────────────────────── */
-
-    const upperBound = (a, x) => {
-        let lo = 0, hi = a.length;
-        while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] <= x) lo = m + 1; else hi = m; }
-        return lo;
-    };
 
     /** Recompute every aggregate for the window ending at `end`. Returns the rows inside it.
      *
@@ -98,14 +63,6 @@ function start(node, D) {
             }
         }
         return inWindow;
-    }
-
-    function bandOf(parameter, value) {
-        const bands = D.parameters[parameter].bands;
-        for (let i = 0; i < bands.length; i++) {
-            if (bands[i].upper === null || value <= bands[i].upper) return i;
-        }
-        return bands.length - 1;
     }
 
     /* ── map ──────────────────────────────────────────────────────────────── */
@@ -168,7 +125,7 @@ function start(node, D) {
             }
             const n = count[k];
             const value = lastValue[k];
-            const band = parameter.bands[bandOf(selected, value)];
+            const band = parameter.bands[bandOf(parameter, value)];
             // Fill is the band of the last known value — the number the marker is showing.
             // Radius is the measurement count, on its own channel.
             marker.setStyle({ color: stroke, fillColor: band.colour, opacity: 1, fillOpacity: 0.9 });
@@ -178,7 +135,7 @@ function start(node, D) {
                 `<strong>${number(value)}</strong> ${esc(parameter.unit)} · ${esc(band.label)}` +
                 `<br><em>${esc(clock(lastTime[k]))} · ${esc(age(end - lastTime[k]))}</em>` +
                 (n > 0
-                    ? `<br><em>window average ${number(sum[k] / n)} from ${count_(n)}</em>`
+                    ? `<br><em>window average ${number(sum[k] / n)} from ${plural(n, "measurement")}</em>`
                     : `<br><em>nothing in this window</em>`),
             );
         }
@@ -221,7 +178,7 @@ function start(node, D) {
                 return `<tr class="none"><td class="p">${esc(parameter.label)}</td>` +
                     `<td class="num" colspan="3">not reported here</td></tr>`;
             }
-            const band = parameter.bands[bandOf(pi, lastValue[k])];
+            const band = parameter.bands[bandOf(parameter, lastValue[k])];
             return `<tr>
                 <td class="p">${esc(parameter.label)}</td>
                 <td class="num">${number(lastValue[k])}<span class="unit">${esc(parameter.unit)}</span></td>
@@ -259,7 +216,7 @@ function start(node, D) {
         document.getElementById("tv-sub").textContent =
             `${rows.length} stations reporting · window ${clock(end - WINDOW)} → ${clock(end)} · values in ${parameter.unit}`;
         document.getElementById("tv-body").innerHTML = rows.map(([name, value, n, t]) => {
-            const band = parameter.bands[bandOf(selected, value)];
+            const band = parameter.bands[bandOf(parameter, value)];
             return `<tr><td>${esc(name)}</td><td class="num">${number(value)}</td>
                 <td class="num">${n || "—"}</td>
                 <td><span class="chip" style="background:${band.colour};color:${band.ink}">${esc(band.label)}</span>
@@ -269,16 +226,9 @@ function start(node, D) {
 
     function drawLegend() {
         const parameter = D.parameters[selected];
-        document.getElementById("legend-title").textContent = parameter.caption;
-        document.getElementById("legend-rows").innerHTML =
-            parameter.bands.map((band) =>
-                `<div class="legend-row"><span class="swatch" style="background:${band.colour}"></span>` +
-                `${esc(band.label)}<span class="rng">${esc(band.range)}</span></div>`).join("") +
-            `<div class="legend-row"><span class="swatch" style="background:${D.noData.colour}"></span>` +
-            `${esc(D.noData.label)}</div>`;
-        document.getElementById("legend-note").textContent =
+        renderLegend(parameter, D.noData,
             `Values in ${parameter.unit}. Fill is the band of the last known value; marker size is the ` +
-            `number of measurements behind it. ${parameter.source}.`;
+            `number of measurements behind it. ${parameter.source}.`);
     }
 
     /* ── render ───────────────────────────────────────────────────────────── */
