@@ -15,7 +15,7 @@ so production code is as close to a source as exists.
 
 from dataclasses import dataclass
 
-from airmax.models import Parameter
+from airmax.models import PARAMETER_UNITS, Parameter
 
 
 @dataclass(frozen=True)
@@ -102,3 +102,24 @@ SCALES = {
     },
     Parameter.CO: Scale(CO_CAPTION, CO_SOURCE, _bands(CO_THRESHOLDS, CO_PALETTE)),
 }
+
+
+def parameter_payload(parameter: str) -> dict:
+    """The scale as the map's JS reads it: the legend rows and what `bandOf` needs to place a value"""
+    return {
+        "name": parameter,
+        "label": Parameter(parameter).label,
+        "unit": PARAMETER_UNITS[parameter],
+        "caption": SCALES[parameter].caption,
+        "source": SCALES[parameter].source,
+        "bands": [
+            {
+                "label": band.label,
+                "colour": band.colour,
+                "ink": band.ink,
+                "range": band.range_label,
+                "upper": band.upper,
+            }
+            for band in SCALES[parameter].bands
+        ],
+    }
