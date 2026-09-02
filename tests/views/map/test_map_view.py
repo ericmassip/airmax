@@ -6,14 +6,14 @@ import pytest
 from django.urls import reverse
 
 from airmax.models import User
-from airmax.views.map.city_map_service import CityMapData, MapCity
-from airmax.views.map.city_map_view import get_city_map_payload
+from airmax.views.map.map_service import MapCity, MapData
+from airmax.views.map.map_view import get_map_payload
 
 UTC = ZoneInfo("UTC")
 NOW = dt(2026, 8, 30, 12, 0, tzinfo=UTC)
 
 
-def a_city_map_data(**overrides):
+def a_map_data(**overrides):
     fields = {
         "window_hours": 3,
         "span_days": 3,
@@ -27,13 +27,13 @@ def a_city_map_data(**overrides):
         "totals": [26.0, 8.0, 30.0],
         "counts": [2, 1, 1],
     }
-    return CityMapData(**{**fields, **overrides})
+    return MapData(**{**fields, **overrides})
 
 
 def test_the_payload_ships_the_buckets_as_they_are_and_keeps_refnis_an_integer():
     """The JS joins the boundaries to the payload on `refnis`, and the GeoJSON side is a number. A string here would
     make `11001 === "11001"` false and paint every municipality grey."""
-    payload = get_city_map_payload(a_city_map_data())
+    payload = get_map_payload(a_map_data())
 
     assert payload["cities"] == [[41002, "Aalst"], [31005, "Brugge"]]
     assert [
@@ -46,7 +46,7 @@ def test_the_payload_ships_the_buckets_as_they_are_and_keeps_refnis_an_integer()
 
 
 def test_the_payload_carries_the_axis_the_slider_moves_along():
-    payload = get_city_map_payload(a_city_map_data())
+    payload = get_map_payload(a_map_data())
 
     assert [payload["windowHours"], payload["hoursInSpan"]] == [3, 3 * 24 + 1]
     assert payload["spanStart"] == (NOW - timedelta(days=3)).timestamp()
@@ -55,7 +55,7 @@ def test_the_payload_carries_the_axis_the_slider_moves_along():
 
 
 def test_the_payload_defaults_to_pm25_and_ships_every_scale():
-    payload = get_city_map_payload(a_city_map_data())
+    payload = get_map_payload(a_map_data())
 
     assert payload["parameter"] == "pm25"
     assert [parameter["name"] for parameter in payload["parameters"]] == [
@@ -72,7 +72,7 @@ def test_the_payload_defaults_to_pm25_and_ships_every_scale():
 
 @pytest.mark.django_db
 def test_the_page_needs_a_login(client):
-    response = client.get(reverse("airmax:city-map"))
+    response = client.get(reverse("airmax:map"))
 
     assert response.status_code == 302
     assert response.url.startswith(reverse("login"))
@@ -82,8 +82,8 @@ def test_the_page_needs_a_login(client):
 def test_the_page_embeds_the_payload_for_the_js_to_read(client):
     client.force_login(User.objects.create_user("eric"))
 
-    response = client.get(reverse("airmax:city-map"))
+    response = client.get(reverse("airmax:map"))
 
     assert response.status_code == 200
-    assert b'id="city-map-payload"' in response.content
+    assert b'id="map-payload"' in response.content
     assert b"be_municipalities.geojson" in response.content

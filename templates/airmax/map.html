@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load humanize %}
 
-{% block title %}Current air quality — AirMax{% endblock %}
+{% block title %}Air quality by municipality — AirMax{% endblock %}
 {% block body_class %}map{% endblock %}
 
 {% block content %}
@@ -13,27 +13,26 @@
     <div class="eyebrow">
       <span class="wordmark">AirMax</span>
     </div>
-    <h1>Current air quality</h1>
+    <h1>Air quality by municipality</h1>
     <p class="sub">
-      {{ data.window_hours|floatformat:"-2" }} hours average per station · OpenAQ BE stream · times in Brussels local
+      {{ data.window_hours }} hours average per municipality · OpenAQ BE stream · times in Brussels local
     </p>
     <div class="figures">
-      <div class="figure"><b id="s-stations">—</b><span id="s-stations-l">Stations</span></div>
+      <div class="figure"><b id="s-cities">—</b><span id="s-cities-l">Municipalities</span></div>
       <div class="figure"><b id="s-measurements">—</b><span id="s-measurements-l">Measurements</span></div>
     </div>
     <p class="foot" id="s-total">—</p>
-        {% comment %}
-            The one fact the slider never changes: how stale the network itself is. Rendered
-            here rather than per marker, because a station reports every one of its own
-            parameters in every burst — no station is ever staler than another.
-        {% endcomment %}
+    {% comment %}
+        The one fact the slider never changes: how stale the network itself is. The payload only
+        knows the hour a reading fell in, so that is what we print.
+    {% endcomment %}
     <p class="freshness">
-      {% if data.newest_event_time %}
-        Newest reading in the network<br>
-        <b>{{ data.newest_event_time|date:"D j M H:i" }}</b> ·
-        <b>{{ data.newest_event_time|naturaltime }}</b>{% if data.window_is_empty %} — nothing in the live {{ data.window_hours|floatformat:"-2" }} hours{% endif %}.
+      {% if data.newest_bucket_start %}
+        Newest readings in the network<br>
+        arrived in the <b>{{ data.newest_bucket_start|date:"D j M H:i" }}</b> hour ·
+        <b>{{ data.newest_bucket_start|naturaltime }}</b>{% if data.latest_window_is_empty %} — nothing in the live {{ data.window_hours }} hours{% endif %}.
       {% else %}
-        No measurements have been ingested yet.
+        No measurements have been ingested in the last {{ data.span_days }} days.
       {% endif %}
     </p>
   </div>
@@ -67,7 +66,7 @@
     </div>
     <div class="slider-wrap">
       <div id="coverage" title="Slider positions where the window contains data"></div>
-      <input type="range" id="slider" aria-label="Window end time">
+      <input type="range" id="slider" aria-label="Window end hour">
     </div>
     <div class="ticks" id="ticks"></div>
   </div>
@@ -80,9 +79,9 @@
       <table class="full">
         <thead>
           <tr>
-            <th>Station</th>
-            <th class="num">Last known</th>
-            <th class="num">In window</th>
+            <th>Municipality</th>
+            <th class="num">Window average</th>
+            <th class="num">Measurements</th>
             <th>Band</th>
           </tr>
         </thead>

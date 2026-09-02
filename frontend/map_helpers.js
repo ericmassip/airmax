@@ -1,5 +1,4 @@
-// What the station map and the city map share: how a moment, a value and a band are printed,
-// and the legend both of them draw. Nothing here knows about markers or shapes.
+// How a moment, a value and a band are printed, and the legend. Nothing here knows about shapes.
 
 const TZ = "Europe/Brussels";
 

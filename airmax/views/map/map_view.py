@@ -1,53 +1,43 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.templatetags.static import static
 from django.views.generic import TemplateView
 
-from airmax.models import PARAMETER_UNITS, Parameter
-from airmax.views.map.aqi import NO_DATA, SCALES
+from airmax.models import Parameter
+from airmax.views.map.aqi import NO_DATA, parameter_payload
 from airmax.views.map.map_service import MapData, get_map_data
 
 DEFAULT_PARAMETER = Parameter.PM25
+# Written by `manage.py build_city_boundaries`. Served as a plain static file so the browser caches it across loads,
+# which is the point of not inlining it: it is the same 359 KB every time and outweighs the readings many times over.
+BOUNDARIES_PATH = "geo/be_municipalities.geojson"
 
 
 def get_map_payload(data: MapData) -> dict:
+    """The five bucket lists go over as they are, and the JS sums them into a window itself. Cities are
+    `[refnis, name]` pairs, and `refnis` stays an integer because the GeoJSON properties are integers -> the JS joins
+    the two with a plain `===`."""
     return {
         "parameter": DEFAULT_PARAMETER,
-        "windowSeconds": int(data.window_hours * 3600),
-        "epoch": data.epoch.timestamp(),
+        "windowHours": data.window_hours,
+        "hoursInSpan": data.hours_in_span,
+        "spanStart": data.span_start.timestamp(),
         "now": data.now.timestamp(),
+        "boundariesUrl": static(BOUNDARIES_PATH),
         "noData": {"label": NO_DATA.label, "colour": NO_DATA.colour},
-        "parameters": [
-            {
-                "name": parameter,
-                "label": Parameter(parameter).label,
-                "unit": PARAMETER_UNITS[parameter],
-                "caption": SCALES[parameter].caption,
-                "source": SCALES[parameter].source,
-                "bands": [
-                    {
-                        "label": band.label,
-                        "colour": band.colour,
-                        "ink": band.ink,
-                        "range": band.range_label,
-                        "upper": band.upper,
-                    }
-                    for band in SCALES[parameter].bands
-                ],
-            }
-            for parameter in data.parameters
-        ],
-        "stations": [
-            [station.name, station.latitude, station.longitude] for station in data.stations
-        ],
-        "t": data.times,
-        "s": data.stations_at,
-        "p": data.parameters_at,
-        "v": data.values,
+        "parameters": [parameter_payload(parameter) for parameter in data.parameters],
+        "cities": [[city.refnis, city.name] for city in data.cities],
+        "hours": data.hours,
+        "cityIndexes": data.city_indexes,
+        "parameterIndexes": data.parameter_indexes,
+        "totals": data.totals,
+        "counts": data.counts,
     }
 
 
 class MapView(LoginRequiredMixin, TemplateView):
-    """Leaflet initialises the map from the returned JSON data. The first paint contains all the data it needs so there
-    is no request that follows it, every interaction happens on the browser after first load."""
+    """The choropleth: every municipality painted by its window average. The page ships one JSON payload and every
+    slider move after that is computed in the browser. The boundaries are the one thing the page fetches on its own,
+    see `BOUNDARIES_PATH`."""
 
     template_name = "airmax/map.html"
 

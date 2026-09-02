@@ -1,160 +1,147 @@
-import bisect
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
+from django.db.models import Count, Sum
+from django.db.models.functions import Trunc
 from django.utils import timezone
 
-from airmax.models import Measurement, Parameter
+from airmax.models import City, Measurement, Parameter
 
 log = logging.getLogger(__name__)
 
+# The six pollutants never change without a migration, so their positions are fixed
+INDEX_BY_PARAMETER = {parameter: index for index, parameter in enumerate(Parameter.values)}
+
 
 @dataclass(frozen=True)
-class Station:
-    """A location as the map draws it. Coordinates come from the location's newest measurement rather than off the
-    location row, because sensors might be mobile."""
+class MapCity:
+    """A municipality as the map labels it, without its geometry. The boundaries are a separate payload: they are the
+    same 565 shapes on every load, and they weigh far more than the readings do."""
 
-    id: int
+    refnis: int
     name: str
-    latitude: float
-    longitude: float
 
 
 @dataclass(frozen=True)
 class MapData:
-    """All the data the frontend client needs to render the full map visualisation"""
+    """Everything the frontend needs to paint every municipality for any position of the time slider. Rolling the
+    buckets into a window is the client's job and lives in the JS. It sums the totals and the counts and only then
+    divides, e.g. a city with one reading of 10 in one hour and forty of 50 in the next comes out at 49, not 30."""
 
-    window_hours: float
-    history_days: float
-    epoch: datetime  # `times` are whole seconds after this
-    now: datetime  # Passed in rather than read per property because four things ask it so it must be constant
-    stations: list[Station]
+    window_hours: int  # Whole buckets, so a window is always a whole number of them
+    span_days: int
+    span_start: datetime  # Start of the oldest bucket. `hours` are whole hours after this.
+    now: datetime
+    cities: list[MapCity]  # Every municipality, including the ones that are empty
     parameters: list[str]
-    times: list[int]
-    stations_at: list[int]  # index into `stations`
-    parameters_at: list[int]  # index into `parameters`
-    values: list[float]
+    hours: list[int]
+    city_indexes: list[int]
+    parameter_indexes: list[int]
+    totals: list[float]
+    counts: list[int]
 
     @property
-    def newest_event_time(self) -> datetime | None:
-        if self.times:
-            return self.epoch + timedelta(seconds=self.times[-1])
+    def hours_in_span(self) -> int:
+        """The first bucket is hour 0. The last bucket is hour `span_days * 24`. The axis includes both of them.
+        Therefore, the number of buckets is one more than the number of hours."""
+        return self.span_days * 24 + 1
 
     @property
-    def time_since_newest_measurement(self) -> timedelta | None:
-        if self.newest_event_time is not None:
-            return self.now - self.newest_event_time
+    def latest_window_is_empty(self) -> bool:
+        return not self.hours or self.hours[-1] < self.hours_in_span - self.window_hours
 
     @property
-    def measurements_in_window(self) -> int:
-        start = self._offset(self.now - timedelta(hours=self.window_hours))
-        return len(self.times) - bisect.bisect_left(self.times, start)
-
-    @property
-    def window_is_empty(self) -> bool:
-        return self.measurements_in_window == 0
-
-    def _offset(self, moment: datetime) -> int:
-        return int((moment - self.epoch).total_seconds())
+    def newest_bucket_start(self) -> datetime | None:
+        if self.hours:
+            return self.span_start + timedelta(hours=self.hours[-1])
 
 
-def get_map_data(window_hours: float | None = None, history_days: float | None = None) -> MapData:
+def get_map_data(window_hours: int | None = None, span_days: int | None = None) -> MapData:
     window_hours = settings.AIRMAX_WINDOW_HOURS if window_hours is None else window_hours
-    history_days = settings.AIRMAX_HISTORY_DAYS if history_days is None else history_days
+    span_days = settings.AIRMAX_SPAN_DAYS if span_days is None else span_days
 
     now = timezone.now()
-    measurements_data = _get_measurements_data(now - timedelta(days=history_days), now)
+    span_start = (
+        (now - timedelta(days=span_days)).astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    )  # Truncated so the oldest bucket is a whole hour
+
+    # Every city regardless of it having data or not. Cities with no data are greyed out.
+    cities = [
+        MapCity(refnis=refnis, name=name)
+        for refnis, name in City.objects.order_by("name_nl").values_list("refnis", "name_nl")
+    ]
+
     data = MapData(
-        window_hours=window_hours, history_days=history_days, now=now, **measurements_data
+        window_hours=window_hours,
+        span_days=span_days,
+        span_start=span_start,
+        now=now,
+        cities=cities,
+        parameters=list(Parameter.values),
+        **_get_hourly_buckets(
+            span_start, {city.refnis: index for index, city in enumerate(cities)}
+        ),
     )
     log.debug(
-        "Map data: %d readings across %d stations over %s days, "
-        "%d of them inside the live %sh window",
-        len(data.times),
-        len(data.stations),
-        history_days,
-        data.measurements_in_window,
+        "City map data: %d buckets across %d of %d municipalities over %d days, opening %dh window %s",
+        len(data.hours),
+        len(set(data.city_indexes)),
+        len(data.cities),
+        span_days,
         window_hours,
+        "empty" if data.latest_window_is_empty else "populated",
     )
     return data
 
 
-def _get_measurements_data(start_time: datetime, end_time: datetime) -> dict:
-    """
-    Reads and processes measurement data within the given time range. The function extracts information about stations,
-    parameters, and measurement values, organizing them into a structured dictionary format for frontend use.
+def _get_hourly_buckets(span_start: datetime, index_by_refnis: dict[int, int]) -> dict:
+    """Returns one bucket for each city, parameter and hour.
 
-    Parameters:
-        start_time (datetime): The start of the time range
-        end_time (datetime): The end of the time range (inclusive)
-
-    Returns:
-        dict:
-            - epoch (datetime): The oldest timestamp of the measurements, used as a reference epoch.
-            - stations (list[Station]): A list of distinct Station objects representing the locations of measurements.
-            - parameters (list[Any]): A list of all possible parameters for the measurements.
-            - times (list[int]): A list of time offsets (in seconds) from the epoch for each measurement.
-            - stations_at (list[int]): A list of station indices corresponding to the stations where the measurements were taken.
-            - parameters_at (list[int]): A list of parameter indices corresponding to the parameters measured.
-            - values (list[float]): A list of rounded measurement values.
+    A bucket sums the readings since `span_start`. The query is a GROUP BY on the city foreign key. It does not read a
+    geometry. The ingest Lambda already found the municipality of each reading with ST_Contains. A bucket keeps a total
+    and a count, no average. The frontend adds `window_hours` buckets together, and then it divides. An average of
+    averages wouldn't be correct, because it gives a quiet hour the same weight as a busy hour.
 
     Example:
-        Three readings — Aalst reporting pm25 at 08:00 and no2 at 08:30, Brugge pm25 at 09:00:
+        Aalst (41002) reports pm25 twice at 08:00 as 12.0 and 14.0. Aalst reports no2 once at 09:15 as 30.0.
+        Brugge (31005) reports pm25 once at 09:30 as 8.0.
+        The value of `span_start` is 08:00.
 
         {
-            "epoch": datetime(2026, 8, 28, 8, 0, tzinfo=UTC),   <- the oldest of the three
-            "stations": [Station(id=12, name="Aalst", latitude=50.94, longitude=4.04),
-                         Station(id=7, name="Brugge", latitude=51.21, longitude=3.22)],
-            "parameters": ["co", "no2", "o3", "pm10", "pm25", "so2"],
-            "times":         [   0, 1800, 3600],   <- seconds after `epoch`
-            "stations_at":   [   0,    0,    1],   <- index into `stations`
-            "parameters_at": [   4,    1,    4],   <- index into `parameters`
-            "values":        [12.5, 30.0,  8.0],
+            "hours":             [   0,    1,    1],   <- whole hours after `span_start` -> [8h, 9h, 9h]
+            "city_indexes":      [   0,    1,    0],   <- index into `cities` -> [Aalst, Brugge, Aalst]
+            "parameter_indexes": [   4,    4,    1],   <- index into `parameters` -> [pm25, pm25, no2]
+            "totals":            [26.0,  8.0, 30.0],   <- rounded totals
+            "counts":            [   2,    1,    1],   <- counts of readings
         }
 
-        The last four are parallel: column 0 reads as "the station at `stations[0]`, Aalst, measured `parameters[4]`,
-        pm25, as 12.5 at `epoch` + 0s".
+        Brugge is before Aalst at 09:00, because 31005 is before 41002.
     """
-    measurements_qs = Measurement.objects.filter(event_time__range=(start_time, end_time))
-
-    # One distinct station for each measurement in the given window. Stations with no measurements will not have markers.
-    stations = [
-        Station(id=id, name=name, latitude=latitude, longitude=longitude)
-        for id, name, latitude, longitude in measurements_qs.order_by("location_id", "-event_time")
-        .distinct("location_id")
-        .values_list("location_id", "location__name", "latitude", "longitude")
-    ]
-    stations.sort(
-        key=lambda station: station.name
-    )  # Order doesn't matter, it's just for readability
-    station_index = {station.id: index for index, station in enumerate(stations)}
-
-    parameters = list(Parameter.values)
-    parameter_index = {parameter: index for index, parameter in enumerate(parameters)}
-
-    measurements = list(
-        measurements_qs.order_by("event_time").values_list(
-            "location_id", "parameter", "event_time", "value"
-        )
+    buckets = (
+        Measurement.objects.filter(event_time__gte=span_start)
+        .exclude(
+            city__isnull=True
+        )  # Reject measurements that did not fall within a Belgian municipality
+        .annotate(hour=Trunc("event_time", "hour", tzinfo=UTC))
+        .values("city_id", "parameter", "hour")
+        .annotate(total=Sum("value"), readings=Count("id"))
+        .order_by("hour", "city_id", "parameter")
     )
-    oldest_event_time = measurements[0][2] if measurements else timezone.now()
 
-    times, stations_at, parameters_at, values = [], [], [], []
-    for location_id, parameter, event_time, value in measurements:
-        # Every time is an offset value from the oldest event time, recovered in js with 'new Date((D.epoch + offset) * 1000)'
-        times.append(int((event_time - oldest_event_time).total_seconds()))
-        stations_at.append(station_index[location_id])
-        parameters_at.append(parameter_index[parameter])
-        values.append(round(value, 2))
+    hours, city_indexes, parameter_indexes, totals, counts = [], [], [], [], []
+    for bucket in buckets:
+        hours.append(int((bucket["hour"] - span_start) / timedelta(hours=1)))
+        city_indexes.append(index_by_refnis[bucket["city_id"]])
+        parameter_indexes.append(INDEX_BY_PARAMETER[bucket["parameter"]])
+        totals.append(round(bucket["total"], 2))
+        counts.append(bucket["readings"])
 
     return {
-        "epoch": oldest_event_time,
-        "stations": stations,
-        "parameters": parameters,
-        "times": times,
-        "stations_at": stations_at,
-        "parameters_at": parameters_at,
-        "values": values,
+        "hours": hours,
+        "city_indexes": city_indexes,
+        "parameter_indexes": parameter_indexes,
+        "totals": totals,
+        "counts": counts,
     }
