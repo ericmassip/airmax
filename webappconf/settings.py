@@ -161,4 +161,4 @@ LOGGING = {
 }
 
 AIRMAX_WINDOW_HOURS = int(os.environ.get("AIRMAX_WINDOW_HOURS", "3"))
-AIRMAX_HISTORY_DAYS = int(os.environ.get("AIRMAX_HISTORY_DAYS", "3"))
+AIRMAX_SPAN_DAYS = int(os.environ.get("AIRMAX_SPAN_DAYS", "3"))
