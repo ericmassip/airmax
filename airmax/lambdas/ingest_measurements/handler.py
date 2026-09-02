@@ -10,6 +10,7 @@ import psycopg
 from airmax.lambdas.ingest_measurements.ingest import parse_measurement_body, upsert_measurements
 
 log = logging.getLogger(__name__)
+log.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # Set by the runtime, the fallback is only for running this module outside Lambda
 REGION = os.environ.get("AWS_REGION", "eu-west-1")
