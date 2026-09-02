@@ -18,11 +18,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # makemigrations never generates this, and without it the geometry columns below cannot be created at all.
-        # Needs a superuser, which our `airmax` role has on RDS through rds_superuser. The least-privilege role the
-        # Lambda connects with does not.
-        # See: https://docs.djangoproject.com/en/6.1/ref/contrib/gis/install/postgis/
-        CreateExtension('postgis'),
+        CreateExtension('postgis'),  # See: https://docs.djangoproject.com/en/6.1/ref/contrib/gis/install/postgis/
         migrations.CreateModel(
             name='City',
             fields=[
