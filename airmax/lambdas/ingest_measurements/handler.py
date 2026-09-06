@@ -55,10 +55,9 @@ def parse_measurements(records):
 def handler(event, context):
     """
     Writes one batch of SQS records. A batch ends one of two ways:
-        * We return, handing back an empty `batchItemFailures`, and the event source reads that as a complete success
-        and deletes every message in the batch.
-        * Something raises and then the `return` below never runs at all: Lambda sees an unhandled exception, treats the
-        batch as a complete failure, and puts all of it back on the queue once the visibility timeout is up.
+        * We return, and the event source reads that as a complete success and deletes every message in the batch.
+        * Something raises: Lambda sees an unhandled exception, treats the batch as a complete failure, and puts all of
+        it back on the queue once the visibility timeout is up.
 
     So a message we could not parse is never what fails a batch. Those are counted in `parse_measurements` and dropped,
     and a batch full of them still returns success.
@@ -80,4 +79,3 @@ def handler(event, context):
         result.measurements_updated,
         unparseable,
     )
-    return {"batchItemFailures": []}

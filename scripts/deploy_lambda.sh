@@ -131,7 +131,6 @@ if [[ "$mapping_uuid" == "None" || -z "$mapping_uuid" ]]; then
         --batch-size "$BATCH_SIZE" \
         --maximum-batching-window-in-seconds "$BATCHING_WINDOW" \
         --scaling-config "MaximumConcurrency=$MAX_CONCURRENCY" \
-        --function-response-types ReportBatchItemFailures \
         "$enabled_flag" \
         --query 'UUID' --output text)"
     echo "    created $mapping_uuid"
@@ -149,7 +148,6 @@ else
         --batch-size "$BATCH_SIZE"
         --maximum-batching-window-in-seconds "$BATCHING_WINDOW"
         --scaling-config "MaximumConcurrency=$MAX_CONCURRENCY"
-        --function-response-types ReportBatchItemFailures
     )
     [[ "$trigger_change" == "enable" ]] && update_args+=(--enabled)
     [[ "$trigger_change" == "disable" ]] && update_args+=(--no-enabled)
