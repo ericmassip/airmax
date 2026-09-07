@@ -87,7 +87,8 @@ scripts/deploy_lambda.sh --disable    # updates and switches it off
 ```
 
 > [!IMPORTANT]
-> To run the scripts above, you'll need to have the AWS CLI installed and configured with the right credentials.
+> To run the scripts above, you'll need to have the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html) 
+installed and configured with the right credentials.
 
 ## City boundaries
 
